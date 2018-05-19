@@ -1,0 +1,79 @@
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+
+plugins {
+    id 'java'
+    id 'application'
+    id "jacoco"
+    id 'com.github.johnrengelman.shadow' version '2.0.4'
+    id 'ru.vyarus.quality' version '3.0.0'
+}
+
+group 'com.github.dkorotych.maze.backend'
+version '1.0-SNAPSHOT'
+
+repositories {
+    jcenter()
+    mavenCentral()
+}
+
+def vertxVersion = '3.5.1'
+sourceCompatibility = 1.8
+
+dependencies {
+    compile "io.vertx:vertx-core:$vertxVersion"
+    compile "io.vertx:vertx-config:$vertxVersion"
+
+    testCompile "io.vertx:vertx-unit:$vertxVersion"
+    testCompile "pl.pragmatists:JUnitParams:1.1.1"
+    testCompile "org.assertj:assertj-core:3.4.1"
+}
+
+mainClassName = 'io.vertx.core.Launcher'
+def mainVerticleName = "${group}.MainVerticle"
+
+def watchForChange = 'src/**/*.java'
+
+def doOnChange
+if (System.getProperty("os.name").toLowerCase().contains("windows")) {
+    doOnChange = '.\\gradlew classes'
+} else {
+    doOnChange = './gradlew classes'
+}
+
+run {
+    args = ['run', mainVerticleName, "--conf=${file('src/main/resources/configuration.json')}", "--redeploy=$watchForChange", "--launcher-class=$mainClassName", "--on-redeploy=$doOnChange"]
+}
+
+shadowJar {
+    classifier = 'fat'
+
+    manifest {
+        attributes "Main-Verticle": mainVerticleName
+    }
+
+    mergeServiceFiles {
+        include 'META-INF/services/io.vertx.core.spi.VerticleFactory'
+    }
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '4.7'
+}
+
+//task validate(dependsOn: shadowJar) {
+//    def totalEvents = 100
+//
+//    javaexec {
+//        main = '-jar'
+//        args shadowJar.archivePath
+//        environment('totalEvents', totalEvents)
+//    }
+//
+//    javaexec {
+//        main = '-jar'
+//        args file("$projectDir/client/follower-maze-2.0.jar")
+//        environment('totalEvents', totalEvents)
+//    }
+//}
