@@ -40,30 +40,30 @@ public class CloseEventSourceTest {
 
     @Test
     public void calculateEvents(TestContext context) {
+        StringBuilder builder = new StringBuilder(4096);
+        for (int i = 0; i < totalEvents; i++) {
+            builder.append(i).append('|').append('B').append('\n');
+        }
         final Vertx vertx = Vertx.vertx();
-        final Async async = context.async(totalEvents);
+        final Async async = context.async();
         final DeploymentOptions options = new DeploymentOptions();
         options.setConfig(new JsonObject()
                 .put("totalEvents", totalEvents));
+        vertx.eventBus().
+                consumer(Addresses.Events.CLOSE, (Handler<Message<JsonObject>>) message -> {
+                    context.assertEquals(message.body().getInteger("total"), totalEvents);
+                    async.complete();
+                });
         vertx.deployVerticle(EventSourceVerticle.class.getName(), options, asyncResult -> {
             final NetClient client = vertx.createNetClient();
             client.connect(EventSourceVerticle.DEFAULT_PORT, InetAddress.getLoopbackAddress().getHostAddress(), socketAsyncResult -> {
                 if (socketAsyncResult.succeeded()) {
                     final NetSocket socket = socketAsyncResult.result();
-                    final Event event = Event.parse("1|B");
-                    for (int i = 0; i <= totalEvents; i++) {
-                        socket.write(event.toString()).end();
-                    }
-//                    vertx.timerStream(10).handler(timerId -> socket.write(event.toString()).end());
+                    socket.write(builder.toString());
                 } else {
                     context.fail(socketAsyncResult.cause());
                 }
             });
         });
-        vertx.eventBus().
-                consumer(Addresses.Events.CLOSE, (Handler<Message<JsonObject>>) message -> {
-                    context.assertTrue(message.body().getInteger("total").equals(totalEvents));
-                    async.complete();
-                });
     }
 }
