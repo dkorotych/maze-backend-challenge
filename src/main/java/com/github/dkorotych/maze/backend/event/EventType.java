@@ -3,16 +3,18 @@ package com.github.dkorotych.maze.backend.event;
 import java.util.Optional;
 
 public enum EventType {
-    FOLLOW('F'),
-    UNFOLLOW('U'),
-    BROADCAST('B'),
-    PRIVATE_MESSAGE('P'),
-    STATUS_UPDATE('S');
+    FOLLOW('F', "/event-source/follow"),
+    UNFOLLOW('U', "/event-source/unfollow"),
+    BROADCAST('B', "/event-source/broadcast"),
+    PRIVATE_MESSAGE('P', "/event-source/message"),
+    STATUS_UPDATE('S', "/event-source/status");
 
     private final char code;
+    private final String address;
 
-    EventType(final char code) {
+    EventType(final char code, final String address) {
         this.code = code;
+        this.address = address;
     }
 
     public static EventType fromCode(final String code) throws ParseEventException {
@@ -38,5 +40,9 @@ public enum EventType {
 
     public char getCode() {
         return code;
+    }
+
+    public String getAddress() {
+        return address;
     }
 }

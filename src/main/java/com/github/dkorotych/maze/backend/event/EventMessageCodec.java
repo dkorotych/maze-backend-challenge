@@ -4,7 +4,7 @@ import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.MessageCodec;
 import io.vertx.core.eventbus.impl.codecs.StringMessageCodec;
 
-public class EventMessageCodec implements MessageCodec<Event, Event> {
+class EventMessageCodec implements MessageCodec<Event, Event> {
 
     private final StringMessageCodec codec = new StringMessageCodec();
 

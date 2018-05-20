@@ -1,19 +1,14 @@
 package com.github.dkorotych.maze.backend.event;
 
-import com.github.dkorotych.maze.backend.Addresses;
 import io.vertx.core.Handler;
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static com.github.dkorotych.maze.backend.Addresses.Events.CLOSE;
-
-public class EventProcessor implements Handler<Buffer> {
+class EventProcessor implements Handler<Event> {
     private final Logger logger = LoggerFactory.getLogger(EventProcessor.class);
     private final int totalEvents;
     private final EventBus eventBus;
@@ -25,16 +20,14 @@ public class EventProcessor implements Handler<Buffer> {
     }
 
     @Override
-    public void handle(final Buffer buffer) {
-        final String eventAsString = buffer.toString(StandardCharsets.UTF_8).trim();
-        logger.debug("Receive new event: {0}", eventAsString);
-        final Event event = Event.parse(eventAsString);
-        Addresses.Events.createAddress(event).ifPresent(address -> {
+    public void handle(final Event event) {
+        event.toAddress().ifPresent(address -> {
+            logger.debug("Publish event {0} to address {1}", event, address);
             eventBus.publish(address, event);
             final int count = counter.incrementAndGet();
             if (count >= totalEvents) {
                 logger.info("Receive maximum events. Send close event source server event");
-                eventBus.publish(CLOSE, new JsonObject()
+                eventBus.publish(EventSourceVerticle.CLOSE_EVENT_SOURCE_ADDRESS, new JsonObject()
                         .put("total", counter.get()));
             }
         });

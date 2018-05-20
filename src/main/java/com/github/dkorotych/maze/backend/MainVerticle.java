@@ -6,25 +6,20 @@ import io.vertx.config.ConfigRetriever;
 import io.vertx.core.*;
 import io.vertx.core.eventbus.Message;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 
+import java.util.Arrays;
 import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class MainVerticle extends AbstractVerticle {
-    private final io.vertx.core.logging.Logger logger = LoggerFactory.getLogger(MainVerticle.class);
-
-    @Override
-    public void init(final Vertx vertx, final Context context) {
-        initializeLogger(context.config());
-        super.init(vertx, context);
-    }
+    private final Logger logger = LoggerFactory.getLogger(MainVerticle.class);
 
     @Override
     public void start(final Future<Void> startFuture) {
         logger.debug("Main verticle has started, let's deploy some others...");
         vertx.eventBus()
-                .consumer(Addresses.Events.CLOSE, (Handler<Message<JsonObject>>) message -> {
+                .consumer(EventSourceVerticle.CLOSE_EVENT_SOURCE_ADDRESS, (Handler<Message<JsonObject>>) message -> {
                     final JsonObject object = message.body();
                     logger.info("{0} messages was received. Close all related servers", object.getInteger("total", 0));
                     vertx.close();
@@ -32,12 +27,14 @@ public class MainVerticle extends AbstractVerticle {
         ConfigRetriever.create(vertx).getConfig(configAsyncResult -> {
             if (configAsyncResult.succeeded()) {
                 final JsonObject config = configAsyncResult.result();
+                initializeLogger(config);
                 final Future<String> eventSourceVerticleFuture = deploy("Events source",
                         EventSourceVerticle.class, config);
                 final Future<String> clientsVerticleFuture = deploy("Clients", ClientsVerticle.class, config);
                 CompositeFuture.all(eventSourceVerticleFuture, clientsVerticleFuture).setHandler(event -> {
                     if (event.succeeded()) {
-                        logger.info("Server started successfully");
+                        logger.info("Server started successfully. Try to receive {0} events",
+                                config.getInteger("totalEvents"));
                         startFuture.complete();
                     } else {
                         startFuture.fail(event.cause());
@@ -49,10 +46,17 @@ public class MainVerticle extends AbstractVerticle {
         });
     }
 
+    @SuppressWarnings("checkstyle:UnnecessaryParentheses")
     private void initializeLogger(final JsonObject config) {
         final String levelName = config.getString("logLevel", "info");
         final Level level = LoggingLevel.fromString(levelName).getLevel();
-        Logger.getGlobal().setLevel(level);
+        Arrays.asList(java.util.logging.Logger.getGlobal(), ((java.util.logging.Logger) logger.getDelegate().unwrap()))
+                .forEach(log -> {
+                    log.setLevel(level);
+                    for (java.util.logging.Handler handler : log.getHandlers()) {
+                        handler.setLevel(level);
+                    }
+                });
     }
 
     private Future<String> deploy(final String name, final Class<? extends AbstractVerticle> aClass,

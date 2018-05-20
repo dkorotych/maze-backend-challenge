@@ -14,7 +14,7 @@ public class Event implements Comparable<Event> {
     private final Integer fromUser;
     private final Integer toUser;
 
-    Event(final EventType type, final int sequenceNumber, final Integer fromUser, final Integer toUser) {
+    public Event(final EventType type, final int sequenceNumber, final Integer fromUser, final Integer toUser) {
         this.type = type;
         this.sequenceNumber = sequenceNumber;
         this.fromUser = fromUser;
@@ -74,6 +74,34 @@ public class Event implements Comparable<Event> {
         return toUser;
     }
 
+    public Optional<String> toAddress() {
+        if (type == null) {
+            return Optional.empty();
+        }
+        final String address;
+        switch (type) {
+            case FOLLOW:
+                address = type.getAddress() + '/' + toUser;
+                break;
+            case UNFOLLOW:
+                address = type.getAddress() + '/' + fromUser;
+                break;
+            case BROADCAST:
+                address = type.getAddress();
+                break;
+            case PRIVATE_MESSAGE:
+                address = type.getAddress() + '/' + toUser;
+                break;
+            case STATUS_UPDATE:
+                address = type.getAddress() + '/' + fromUser;
+                break;
+            default:
+                address = null;
+                break;
+        }
+        return Optional.ofNullable(address);
+    }
+
     @Override
     public String toString() {
         if (type == null) {
@@ -119,8 +147,8 @@ public class Event implements Comparable<Event> {
         return Comparator
                 .comparingInt(Event::getSequenceNumber)
                 .thenComparing(Event::getType)
-                .thenComparingInt(Event::getToUser)
-                .thenComparingInt(Event::getFromUser)
+                .thenComparingInt(item -> item.getToUser() == null ? 0 : item.getToUser())
+                .thenComparingInt(item -> item.getFromUser() == null ? 0 : item.getFromUser())
                 .compare(this, event);
     }
 }
