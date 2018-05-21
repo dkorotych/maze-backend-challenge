@@ -22,7 +22,7 @@ class EventProcessor implements Handler<Event> {
     @Override
     public void handle(final Event event) {
         event.toAddress().ifPresent(address -> {
-            logger.info("Publish event {0} to address {1}", event, address);
+            logger.debug("Publish event {0} to address {1}", event, address);
             eventBus.publish(address, event);
             final int count = counter.incrementAndGet();
             if (count >= totalEvents) {

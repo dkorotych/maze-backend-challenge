@@ -17,7 +17,7 @@ import io.vertx.core.parsetools.RecordParser;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
 
 public class ClientsVerticle extends AbstractVerticle {
     public static final int DEFAULT_PORT = 9099;
@@ -58,15 +58,18 @@ public class ClientsVerticle extends AbstractVerticle {
         private final Logger logger = LoggerFactory.getLogger(ConnectHandler.class);
         private final RecordParser parser;
         private final EventBus eventBus;
+        private final FollowersKeeper followersKeeper;
 
         private String writeHandlerID;
 
         ConnectHandler(final EventBus eventBus) {
             this.eventBus = eventBus;
+            followersKeeper = new FollowersKeeper();
             parser = RecordParser.newDelimited("\n", buffer -> {
                 final int userId = Integer.parseInt(buffer.toString(ENCODING));
-                logger.debug("User {0} connected", userId);
-                final Map<Integer, MessageConsumer<Event>> followers = new ConcurrentHashMap<>();
+                logger.info("User {0} connected", userId);
+                final Map<Integer, MessageConsumer<Event>> followers = followersKeeper.getFollowers(userId);
+                followersKeeper.setWriteHandlerIdentifier(userId, writeHandlerID);
                 final Event broadcastEvent = new Event(EventType.BROADCAST, 0, null, null);
                 final Event privateMessageEvent = new Event(EventType.PRIVATE_MESSAGE, 0, null, userId);
                 final Event statusUpdateEvent = new Event(EventType.STATUS_UPDATE, 0, userId, null);
@@ -143,7 +146,8 @@ public class ClientsVerticle extends AbstractVerticle {
             return message -> {
                 final Event event = message.body();
                 logger.debug("User {0} receive event {1}", userId, event);
-                final Buffer buffer = Buffer.buffer(event.toString() + "\r\n", ENCODING);
+                final Buffer buffer = toBuffer(event);
+                final Integer toUser = event.getToUser();
                 switch (event.getType()) {
                     case BROADCAST:
                         sendToSocket(buffer);
@@ -158,14 +162,20 @@ public class ClientsVerticle extends AbstractVerticle {
                         break;
                     case FOLLOW:
                         new Event(EventType.STATUS_UPDATE,
-                                event.getSequenceNumber(), event.getToUser(), null)
+                                event.getSequenceNumber(), toUser, null)
                                 .toAddress()
-                                .ifPresent(address -> followers.put(event.getToUser(),
-                                        eventBus.consumer(address, eventHandler(userId, followers))));
-                        // sendToSocket(buffer);
+                                .ifPresent(address -> {
+                                    if (!followers.containsKey(toUser)) {
+                                        final MessageConsumer<Event> consumer = eventBus.consumer(address, handler -> {
+                                            sendToSocket(handler.body(), userId);
+                                        });
+                                        followers.put(toUser, consumer);
+                                    }
+                                });
+                        sendToSocket(buffer, toUser);
                         break;
                     case UNFOLLOW:
-                        final MessageConsumer<Event> consumer = followers.remove(event.getToUser());
+                        final MessageConsumer<Event> consumer = followers.remove(toUser);
                         if (consumer != null) {
                             consumer.unregister();
                         }
@@ -180,6 +190,26 @@ public class ClientsVerticle extends AbstractVerticle {
         private void sendToSocket(final Buffer buffer) {
             logger.debug("Send {0} to socket", buffer.toString().trim());
             eventBus.publish(writeHandlerID, buffer);
+        }
+
+        private Buffer toBuffer(final Event event) {
+            return Buffer.buffer(event.toString() + "\r\n", ENCODING);
+        }
+
+        private void sendToSocket(final Event event, final int userId) {
+            sendToSocket(toBuffer(event), userId);
+        }
+
+        private void sendToSocket(final Buffer buffer, final int userId) {
+            final String command = buffer.toString().trim();
+            logger.info("Try to send {0} event to user {1} socket", command, userId);
+            Optional.ofNullable(followersKeeper.getWriteHandlerIdentifier(userId))
+                    .map(String::trim)
+                    .filter(String::isEmpty)
+                    .ifPresent(writeHandlerId -> {
+                        eventBus.publish(writeHandlerId, buffer);
+                        logger.info("Sent {0} to user {1}", command, userId);
+                    });
         }
     }
 }
