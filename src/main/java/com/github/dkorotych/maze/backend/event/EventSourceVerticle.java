@@ -1,9 +1,6 @@
 package com.github.dkorotych.maze.backend.event;
 
-import io.vertx.core.AbstractVerticle;
-import io.vertx.core.AsyncResult;
-import io.vertx.core.Future;
-import io.vertx.core.Handler;
+import io.vertx.core.*;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.logging.Logger;
@@ -35,7 +32,7 @@ public class EventSourceVerticle extends AbstractVerticle {
         final EventBus eventBus = vertx.eventBus()
                 .registerDefaultCodec(Event.class, new EventMessageCodec());
         eventBus.consumer(CLOSE_EVENT_SOURCE_ADDRESS, message -> vertx.close());
-        final EventAggregator eventAggregator = new EventAggregator(totalEvents, eventBus);
+        final EventAggregator eventAggregator = new EventAggregator(totalEvents, eventBus, vertx.getOrCreateContext());
         vertx.createNetServer(options)
                 .connectHandler(socket -> socket
                         .handler(eventAggregator)
@@ -73,11 +70,13 @@ public class EventSourceVerticle extends AbstractVerticle {
 
         private final CopyOnWriteArrayList<Event> events;
         private final EventProcessor eventProcessor;
+        private final Context context;
         private final RecordParser parser;
         private final ReentrantLock lock;
 
-        EventAggregator(final int totalEvents, final EventBus eventBus) {
+        EventAggregator(final int totalEvents, final EventBus eventBus, final Context context) {
             events = new CopyOnWriteArrayList<>();
+            this.context = context;
             lock = new ReentrantLock();
             eventProcessor = new EventProcessor(totalEvents, eventBus);
             parser = RecordParser.newDelimited("\n", buffer -> {
@@ -98,15 +97,17 @@ public class EventSourceVerticle extends AbstractVerticle {
 
         @SuppressWarnings("unchecked")
         private void sendEvents() {
-            transaction(events -> {
-                final List<Event> list = (List<Event>) events.clone();
-                events.clear();
-                return list;
-            })
-                    .stream()
-                    .parallel()
-                    .sorted()
-                    .forEachOrdered(eventProcessor::handle);
+            context.runOnContext(tmp -> {
+                transaction(events -> {
+                    final List<Event> list = (List<Event>) events.clone();
+                    events.clear();
+                    return list;
+                })
+                        .stream()
+                        .parallel()
+                        .sorted()
+                        .forEachOrdered(eventProcessor::handle);
+            });
         }
 
         private List<Event> transaction(final Function<CopyOnWriteArrayList<Event>, List<Event>> function) {
