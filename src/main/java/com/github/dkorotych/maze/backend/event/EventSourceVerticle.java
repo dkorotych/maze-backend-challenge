@@ -82,7 +82,7 @@ public class EventSourceVerticle extends AbstractVerticle {
             eventProcessor = new EventProcessor(totalEvents, eventBus);
             parser = RecordParser.newDelimited("\n", buffer -> {
                 final String eventAsString = buffer.toString(StandardCharsets.UTF_8).trim();
-                logger.debug("Receive new event: {0}", eventAsString);
+                logger.info("Receive new event: {0}", eventAsString);
                 final Event event = Event.parse(eventAsString);
                 transaction(tmp -> {
                     events.add(event);

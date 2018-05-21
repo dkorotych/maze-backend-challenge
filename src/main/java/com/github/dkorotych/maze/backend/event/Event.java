@@ -81,7 +81,7 @@ public class Event implements Comparable<Event> {
         final String address;
         switch (type) {
             case FOLLOW:
-                address = type.getAddress() + '/' + toUser;
+                address = type.getAddress() + '/' + fromUser;
                 break;
             case UNFOLLOW:
                 address = type.getAddress() + '/' + fromUser;

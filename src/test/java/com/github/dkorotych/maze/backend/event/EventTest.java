@@ -77,7 +77,7 @@ public class EventTest {
 
     Object[][] parametersForToAddress() {
         return new Object[][]{
-                {new Event(EventType.FOLLOW, 666, 60, 50), "/event-source/follow/50"},
+                {new Event(EventType.FOLLOW, 666, 60, 50), "/event-source/follow/60"},
                 {new Event(EventType.UNFOLLOW, 1, 12, 9), "/event-source/unfollow/12"},
                 {new Event(EventType.BROADCAST, 542532, null, null), "/event-source/broadcast"},
                 {new Event(EventType.PRIVATE_MESSAGE, 43, 32, 56), "/event-source/message/56"},

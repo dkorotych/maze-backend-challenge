@@ -8,6 +8,7 @@ import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
+import io.vertx.core.eventbus.MessageConsumer;
 import io.vertx.core.logging.Logger;
 import io.vertx.core.logging.LoggerFactory;
 import io.vertx.core.net.NetServerOptions;
@@ -15,9 +16,8 @@ import io.vertx.core.parsetools.RecordParser;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Objects;
-import java.util.Set;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ClientsVerticle extends AbstractVerticle {
     public static final int DEFAULT_PORT = 9099;
@@ -64,13 +64,13 @@ public class ClientsVerticle extends AbstractVerticle {
         ConnectHandler(final EventBus eventBus) {
             this.eventBus = eventBus;
             parser = RecordParser.newDelimited("\n", buffer -> {
-                final int userId = Integer.valueOf(buffer.toString(ENCODING));
+                final int userId = Integer.parseInt(buffer.toString(ENCODING));
                 logger.debug("User {0} connected", userId);
-                final Set<Integer> followers = new ConcurrentSkipListSet<>();
+                final Map<Integer, MessageConsumer<Event>> followers = new ConcurrentHashMap<>();
                 final Event broadcastEvent = new Event(EventType.BROADCAST, 0, null, null);
                 final Event privateMessageEvent = new Event(EventType.PRIVATE_MESSAGE, 0, null, userId);
                 final Event statusUpdateEvent = new Event(EventType.STATUS_UPDATE, 0, userId, null);
-                final Event followEvent = new Event(EventType.FOLLOW, 0, null, userId);
+                final Event followEvent = new Event(EventType.FOLLOW, 0, userId, userId);
                 final Event unfollowEvent = new Event(EventType.UNFOLLOW, 0, userId, null);
                 for (Event event : Arrays.asList(
                         broadcastEvent,
@@ -138,48 +138,48 @@ public class ClientsVerticle extends AbstractVerticle {
             return parser.endHandler(endHandler);
         }
 
-        private Handler<Message<Event>> eventHandler(final int userId, final Set<Integer> followers) {
+        private Handler<Message<Event>> eventHandler(final int userId,
+                                                     final Map<Integer, MessageConsumer<Event>> followers) {
             return message -> {
                 final Event event = message.body();
                 logger.debug("User {0} receive event {1}", userId, event);
                 final Buffer buffer = Buffer.buffer(event.toString() + "\r\n", ENCODING);
-                final Integer toUser = event.getToUser();
                 switch (event.getType()) {
                     case BROADCAST:
-                        eventBus.publish(writeHandlerID, buffer);
+                        sendToSocket(buffer);
                         break;
                     case PRIVATE_MESSAGE:
-                        if (Objects.equals(toUser, userId)) {
-                            eventBus.publish(writeHandlerID, buffer);
-                        }
+                        sendToSocket(buffer);
                         break;
                     case STATUS_UPDATE:
-                        followers.forEach(fromUser -> {
-                            final Event statusUpdateEvent = new Event(EventType.STATUS_UPDATE,
-                                    event.getSequenceNumber(), fromUser, userId);
-                            statusUpdateEvent.toAddress()
-                                    .ifPresent(address -> {
-                                        logger.debug("Send status update event from user {0} to user {1}",
-                                                fromUser, userId);
-                                        eventBus.consumer(address, eventHandler(userId, followers))
-                                                .unregister();
-                                    });
-                        });
-                        break;
-                    case FOLLOW:
-                        followers.add(event.getFromUser());
-                        if (Objects.equals(toUser, userId)) {
-                            eventBus.publish(writeHandlerID, buffer);
+                        if (!followers.isEmpty()) {
+                            sendToSocket(buffer);
                         }
                         break;
+                    case FOLLOW:
+                        new Event(EventType.STATUS_UPDATE,
+                                event.getSequenceNumber(), event.getToUser(), null)
+                                .toAddress()
+                                .ifPresent(address -> followers.put(event.getToUser(),
+                                        eventBus.consumer(address, eventHandler(userId, followers))));
+                        // sendToSocket(buffer);
+                        break;
                     case UNFOLLOW:
-                        followers.remove(event.getFromUser());
+                        final MessageConsumer<Event> consumer = followers.remove(event.getToUser());
+                        if (consumer != null) {
+                            consumer.unregister();
+                        }
                         break;
                     default:
                         logger.warn("Type {0} can not be processing", event.getType());
                         break;
                 }
             };
+        }
+
+        private void sendToSocket(final Buffer buffer) {
+            logger.debug("Send {0} to socket", buffer.toString().trim());
+            eventBus.publish(writeHandlerID, buffer);
         }
     }
 }
