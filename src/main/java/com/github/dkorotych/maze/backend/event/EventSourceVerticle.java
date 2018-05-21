@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class EventSourceVerticle extends AbstractVerticle {
     public static final String CLOSE_EVENT_SOURCE_ADDRESS = "/event-source/close";
@@ -81,7 +82,7 @@ public class EventSourceVerticle extends AbstractVerticle {
             eventProcessor = new EventProcessor(totalEvents, eventBus);
             parser = RecordParser.newDelimited("\n", buffer -> {
                 final String eventAsString = buffer.toString(StandardCharsets.UTF_8).trim();
-                logger.info("Receive new event: {0}", eventAsString);
+                logger.debug("Receive new event: {0}", eventAsString);
                 final Event event = Event.parse(eventAsString);
                 transaction(tmp -> {
                     events.add(event);
@@ -97,17 +98,26 @@ public class EventSourceVerticle extends AbstractVerticle {
 
         @SuppressWarnings("unchecked")
         private void sendEvents() {
-            context.runOnContext(tmp -> {
-                transaction(events -> {
-                    final List<Event> list = (List<Event>) events.clone();
+            final Handler<Future<List<Event>>> blockingCodeHandler = event -> {
+                final List<Event> list = transaction(events -> {
+                    final List<Event> tmp = (List<Event>) events.clone();
                     events.clear();
-                    return list;
+                    return tmp;
                 })
                         .stream()
                         .parallel()
                         .sorted()
-                        .forEachOrdered(eventProcessor::handle);
-            });
+                        .collect(Collectors.toList());
+                event.complete(list);
+            };
+            final Handler<AsyncResult<List<Event>>> resultHandler = asyncResult -> {
+                if (asyncResult.succeeded()) {
+                    asyncResult.result().forEach(eventProcessor::handle);
+                } else {
+                    logger.warn("Can't process sorted events list", asyncResult.cause());
+                }
+            };
+            context.executeBlocking(blockingCodeHandler, true, resultHandler);
         }
 
         private List<Event> transaction(final Function<CopyOnWriteArrayList<Event>, List<Event>> function) {
